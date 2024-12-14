@@ -79,7 +79,6 @@ class TGIDataProcessor:
             # 访问搜索URL
             encoded_nickname = quote(nickname)
             search_url = self.search_base_url + encoded_nickname
-            logging.info(f"访问搜索URL: {search_url}")
             self.driver.get(search_url)
 
             # 等待加载完成
@@ -112,7 +111,6 @@ class TGIDataProcessor:
             results = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".item-p2pF9O"))
             )
-            logging.info(f"找到 {len(results)} 个搜索结果")
             return results
         except Exception as e:
             logging.error(f"获取搜索结果时出错: {str(e)}")
@@ -126,7 +124,6 @@ class TGIDataProcessor:
             daren_detail_button = self.wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, ".daren-CJ5hTJ"))
             )
-            logging.info("成功找到达人详情按钮")
 
             # 记录当前窗口句柄
             original_handle = self.driver.current_window_handle
@@ -141,8 +138,8 @@ class TGIDataProcessor:
             self.driver.execute_script("arguments[0].click();", daren_detail_button)
             logging.info(f"已点击 {nickname} 的达人详情按钮")
             
-            time.sleep(0.5)
-            
+            self._wait_for_loading()
+
             original_handle = self.driver.current_window_handle
             # 修改粉丝画像按钮的选择器
             fans_profile_selector = "div.item-a_379S:nth-child(3)"  # 选择第三个item-a_379S元素，即粉丝画像按钮
@@ -162,8 +159,7 @@ class TGIDataProcessor:
             self.driver.execute_script("arguments[0].click();", fans_profile_button)
             logging.info(f"已点击 {nickname} 的粉丝画像按钮")
             
-            # 点击粉丝画像按钮后，等待API请求
-            time.sleep(2)  # 给予一些时间让请求发出
+            time.sleep(1)
             
             # 使用 CDP (Chrome DevTools Protocol) 获取网络请求
             logs = self.driver.get_log('performance')
@@ -229,7 +225,6 @@ class TGIDataProcessor:
             if len(self.driver.window_handles) > 1:
                 self.driver.close()
                 self.driver.switch_to.window(original_handle)
-        time.sleep(100)
                 
 
     def _handle_search_error(self, error, nickname, original_handles):
@@ -260,8 +255,8 @@ class TGIDataProcessor:
         nicknames = df[nickname_column].unique()
         logging.info(f"共找到 {len(nicknames)} 个不重复昵称")
 
-        # 批量处理昵称，每批5个
-        batch_size = 5
+        # 批量处理昵称，每批10个
+        batch_size = 10
         for i in range(0, len(nicknames), batch_size):
             batch = nicknames[i:i + batch_size]
             logging.info(f"\n开始处理第 {i+1}-{min(i+batch_size, len(nicknames))}/{len(nicknames)} 批昵称")
@@ -271,8 +266,8 @@ class TGIDataProcessor:
             
             # 每批处理完后清理内存
             if i + batch_size < len(nicknames):
-                logging.info("批次处理完成，暂停5秒...")
-                time.sleep(5)
+                logging.info("批次处理完成，暂停1秒...")
+                time.sleep(1)
 
     def __del__(self):
         """析构函数，确保关闭浏览器"""
