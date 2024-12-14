@@ -31,6 +31,8 @@ class TGIDataProcessor:
                    # 设置 Chrome 选项
             logging.info("初始化Chrome WebDriver")
             chrome_options = Options()
+            # 添加性能日志配置
+            chrome_options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
             # 使用默认的 Chrome 用户配置文件
             chrome_options.add_argument(
                 r"user-data-dir=C:\Users\undefined\AppData\Local\Google\Chrome\User Data")
@@ -160,23 +162,65 @@ class TGIDataProcessor:
             self.driver.execute_script("arguments[0].click();", fans_profile_button)
             logging.info(f"已点击 {nickname} 的粉丝画像按钮")
             
-           
-            # 等待并点击城市级别按钮
-            city_level_button = self.wait.until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), '城市级别')]"))
-            )
-
-            # 滚动到城市级别按钮位置
-            self.driver.execute_script(
-                "arguments[0].scrollIntoView({block: 'center'});", 
-                city_level_button
-            )
-
-            # 点击城市级别按钮
-            self.driver.execute_script("arguments[0].click();", city_level_button)
-            logging.info(f"已点击城市级别按钮")
-
-            time.sleep(100)  # 等待数据加载
+            # 点击粉丝画像按钮后，等待API请求
+            time.sleep(2)  # 给予一些时间让请求发出
+            
+            # 使用 CDP (Chrome DevTools Protocol) 获取网络请求
+            logs = self.driver.get_log('performance')
+            
+            # 查找目标API请求
+            target_url = "https://trendinsight.oceanengine.com/api/v2/daren/get_great_user_fans_info"
+            for entry in logs:
+                try:
+                    message = json.loads(entry['message'])
+                    if 'message' in message and message['message']['method'] == 'Network.responseReceived':
+                        request_url = message['message']['params']['response']['url']
+                        if target_url in request_url:
+                            # 获取请求ID和响应内容
+                            request_id = message['message']['params']['requestId']
+                            response = self.driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
+                            
+                            # 解析响应数据
+                            response_data = json.loads(response['body'])
+                            city_label_tgi = json.loads(response_data['data']['CityLabel_Tgi'])
+                            
+                            # 显示每个城市等级的TGI值
+                            logging.info(f"\n昵称 {nickname} 的城市等级TGI详情:")
+                            for item in city_label_tgi:
+                                logging.info(f"{item['name']}: {item['value']:.2f}")
+                            
+                            # 计算TGI平均值
+                            tgi_values = [item['value'] for item in city_label_tgi]
+                            average_tgi = sum(tgi_values) / len(tgi_values)
+                            
+                            # 更新Excel文件
+                            try:
+                                df = pd.read_excel(self.excel_file)
+                                # 找到对应昵称的行
+                                mask = df['昵称'] == nickname
+                                if mask.any():
+                                    # 如果"TGI均值"列不存在，创建该列
+                                    if 'TGI均值' not in df.columns:
+                                        df['TGI均值'] = None
+                                    # 更新TGI均值
+                                    df.loc[mask, 'TGI均值'] = average_tgi
+                                    # 保存更新后的Excel文件
+                                    df.to_excel(self.excel_file, index=False)
+                                    logging.info(f"已将 {nickname} 的TGI均值 {average_tgi:.2f} 保存到Excel文件")
+                                else:
+                                    logging.warning(f"在Excel文件中未找到昵称 {nickname}")
+                            except Exception as e:
+                                logging.error(f"更新Excel文件时出错: {str(e)}")
+                            
+                            logging.info(f"\n总计算过程:")
+                            logging.info(f"总和: {sum(tgi_values):.2f}")
+                            logging.info(f"城市等级数量: {len(tgi_values)}")
+                            logging.info(f"平均值: {average_tgi:.2f}")
+                            break
+                except Exception as e:
+                    logging.error(f"处理网络日志时出错: {str(e)}")
+                    continue
+                
         except Exception as e:
             logging.error(f"处理达人详情时发生错误: {str(e)}")
             raise
@@ -185,6 +229,8 @@ class TGIDataProcessor:
             if len(self.driver.window_handles) > 1:
                 self.driver.close()
                 self.driver.switch_to.window(original_handle)
+        time.sleep(100)
+                
 
     def _handle_search_error(self, error, nickname, original_handles):
         """处理搜索过程中的错误"""
