@@ -1,5 +1,18 @@
+# 基础数据处理
 pandas==2.2.2
-openpyxl==3.1.2 
-xlrd >= 2.0.1
+numpy>=1.24.0
+
+# Excel文件处理
+openpyxl==3.1.2
+xlrd>=2.0.1
 pyxlsb>=1.0.10
+
+# Web自动化
 selenium>=4.18.1
+webdriver_manager>=4.0.0
+
+# 网络请求
+requests>=2.31.0
+
+# 日志处理
+python-json-logger>=2.0.7
