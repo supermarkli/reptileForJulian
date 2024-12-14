@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Excel
+*.xls
+*.xlsx
+!TgiData.xlsx
+!FansData.xlsx
+
+# Chrome
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# 环境
+venv/
+env/
+.env
+
+# 系统
+.DS_Store
+Thumbs.db 
