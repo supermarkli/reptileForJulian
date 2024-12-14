@@ -1,4 +1,4 @@
-# TgiRead.py
+# FansRead.py
 import os
 import pandas as pd
 from urllib.parse import quote
@@ -21,10 +21,10 @@ logging.basicConfig(
 )
 
 
-class TGIDataProcessor:
+class FansDataProcessor:
     def __init__(self):
         self.base_url = Config.BASE_URL
-        self.excel_file = Config.TGI_EXCEL_FILE
+        self.excel_file = Config.FANS_EXCEL_FILE
         self.search_base_url = Config.SEARCH_BASE_URL
 
         # 初始化浏览器驱动
@@ -47,8 +47,8 @@ class TGIDataProcessor:
             logging.error(f"初始化浏览器驱动失败: {str(e)}")
             raise
 
-    def read_tgi_data(self):
-        """读取Excel文件中的TGI指数数据"""
+    def read_fans_data(self):
+        """读取Excel文件中的数据"""
         try:
             if not os.path.exists(self.excel_file):
                 logging.error(f"错误：找不到文件 {self.excel_file}")
@@ -123,17 +123,87 @@ class TGIDataProcessor:
             # 点击达人详情按钮
             self._click_daren_detail(nickname)
             
-            # 点击粉丝画像按钮
-            self._click_fans_profile(nickname)
-            
-            # 获取并处理TGI数据
-            self._process_tgi_data(nickname)
+            # 获取并处理粉丝数据
+            self._process_fans_data(nickname)
             
         except Exception as e:
             logging.error(f"处理达人详情时发生错误: {str(e)}")
             raise
         finally:
             self._clean_up_windows()
+
+    def _process_fans_data(self, nickname):
+        """处理粉丝数据"""
+        logs = self.driver.get_log('performance')
+        target_url = "https://trendinsight.oceanengine.com/api/v2/daren/get_great_user_mile_Info"
+        
+        for entry in logs:
+            try:
+                if not self._is_target_request(entry, target_url):
+                    continue
+                    
+                fans_data = self._extract_fans_data(entry)
+                if not fans_data:
+                    continue
+                    
+                self._log_fans_details(nickname, fans_data)
+                self._update_excel_file(nickname, fans_data)
+                break
+                
+            except Exception as e:
+                logging.error(f"处理网络日志时出错: {str(e)}")
+                continue
+
+    def _extract_fans_data(self, entry):
+        """提取粉丝数据"""
+        message = json.loads(entry['message'])
+        request_id = message['message']['params']['requestId']
+        response = self.driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
+        response_data = json.loads(response['body'])
+        return response_data['data']['fanslistday']
+
+    def _log_fans_details(self, nickname, fans_data):
+        """记录粉丝数据详情"""
+        logging.info(f"\n昵称 {nickname} 的粉丝数据详情:")
+        for item in fans_data:
+            logging.info(f"日期: {item['date']}, 数量: {item['count']}")
+
+    def _update_excel_file(self, nickname, fans_data):
+        """更新Excel文件中的粉丝数据"""
+        try:
+            df = pd.read_excel(self.excel_file)
+            mask = df['昵称'] == nickname
+            
+            if mask.any():
+                # 将fans_data按日期排序
+                sorted_fans_data = sorted(fans_data, key=lambda x: x['date'])
+                
+                # 为每个日期创建新列（如果不存在）
+                for item in sorted_fans_data:
+                    date = item['date']
+                    count = int(item['count'])  # 确保count是整数类型
+                    
+                    if date not in df.columns:
+                        # 创建新列时指定数据类型为Int64（可以处理空值的整数类型）
+                        df[date] = pd.Series(dtype='Int64')
+                    
+                    # 使用astype确保类型一致
+                    df.loc[mask, date] = count
+                
+                # 重新排序列：保持'排名'和'昵称'列在最前，其他列按日期排序
+                fixed_columns = ['排名', '昵称']
+                date_columns = [col for col in df.columns if col not in fixed_columns]
+                date_columns.sort()
+                new_columns = fixed_columns + date_columns
+                df = df[new_columns]
+                
+                df.to_excel(self.excel_file, index=False)
+                logging.info(f"已将 {nickname} 的粉丝数据按日期顺序保存到Excel文件")
+            else:
+                logging.warning(f"在Excel文件中未找到昵称 {nickname}")
+                
+        except Exception as e:
+            logging.error(f"更新Excel文件时出错: {str(e)}")
 
     def _click_daren_detail(self, nickname):
         """点击达人详情按钮"""
@@ -145,41 +215,9 @@ class TGIDataProcessor:
         self._scroll_and_click(daren_detail_button)
         logging.info(f"已点击 {nickname} 的达人详情按钮")
         self._wait_for_loading()
-
-    def _click_fans_profile(self, nickname):
-        """点击粉丝画像按钮"""
-        fans_profile_selector = "div.item-a_379S:nth-child(3)"
-        fans_profile_button = self.wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, fans_profile_selector))
-        )
-        
-        self._scroll_and_click(fans_profile_button)
-        logging.info(f"已点击 {nickname} 的粉丝画像按钮")
         time.sleep(1)
 
-    def _process_tgi_data(self, nickname):
-        """处理TGI数据"""
-        logs = self.driver.get_log('performance')
-        target_url = "https://trendinsight.oceanengine.com/api/v2/daren/get_great_user_fans_info"
-        
-        for entry in logs:
-            try:
-                if not self._is_target_request(entry, target_url):
-                    continue
-                    
-                city_label_tgi = self._extract_tgi_data(entry)
-                if not city_label_tgi:
-                    continue
-                    
-                self._log_tgi_details(nickname, city_label_tgi)
-                average_tgi = self._calculate_average_tgi(city_label_tgi)
-                self._update_excel_file(nickname, average_tgi)
-                break
-                
-            except Exception as e:
-                logging.error(f"处理网络日志时出错: {str(e)}")
-                continue
-
+   
     def _scroll_and_click(self, element):
         """滚动到元素位置并点击"""
         self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
@@ -192,49 +230,6 @@ class TGIDataProcessor:
             return False
         return target_url in message['message']['params']['response']['url']
 
-    def _extract_tgi_data(self, entry):
-        """提取TGI数据"""
-        message = json.loads(entry['message'])
-        request_id = message['message']['params']['requestId']
-        response = self.driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': request_id})
-        response_data = json.loads(response['body'])
-        return json.loads(response_data['data']['CityLabel_Tgi'])
-
-    def _log_tgi_details(self, nickname, city_label_tgi):
-        """记录TGI详情"""
-        logging.info(f"\n昵称 {nickname} 的城市等级TGI详情:")
-        for item in city_label_tgi:
-            logging.info(f"{item['name']}: {item['value']:.2f}")
-
-    def _calculate_average_tgi(self, city_label_tgi):
-        """计算TGI平均值"""
-        tgi_values = [item['value'] for item in city_label_tgi]
-        average_tgi = sum(tgi_values) / len(tgi_values)
-        
-        logging.info("\n总计算过程:")
-        logging.info(f"总和: {sum(tgi_values):.2f}")
-        logging.info(f"城市等级数量: {len(tgi_values)}")
-        logging.info(f"平均值: {average_tgi:.2f}")
-        
-        return average_tgi
-
-    def _update_excel_file(self, nickname, average_tgi):
-        """更新Excel文件中的TGI均值"""
-        try:
-            df = pd.read_excel(self.excel_file)
-            mask = df['昵称'] == nickname
-            
-            if mask.any():
-                if 'TGI均值' not in df.columns:
-                    df['TGI均值'] = None
-                df.loc[mask, 'TGI均值'] = average_tgi
-                df.to_excel(self.excel_file, index=False)
-                logging.info(f"已将 {nickname} 的TGI均值 {average_tgi:.2f} 保存到Excel文件")
-            else:
-                logging.warning(f"在Excel文件中未找到昵称 {nickname}")
-                
-        except Exception as e:
-            logging.error(f"更新Excel文件时出错: {str(e)}")
 
     def _clean_up_windows(self):
         """清理浏览器窗口"""
@@ -287,10 +282,10 @@ class TGIDataProcessor:
 
     def run(self):
         """运行主程序"""
-        df = self.read_tgi_data()
+        df = self.read_fans_data()
         self.process_nicknames(df)
 
 
 if __name__ == "__main__":
-    processor = TGIDataProcessor()
+    processor = FansDataProcessor()
     processor.run()

@@ -7,7 +7,8 @@ class Config:
     API_URL = "https://trendinsight.oceanengine.com/api/v2/daren/get_great_user_fans_info"
 
     # 文件配置
-    EXCEL_FILE = "data.xlsx"
+    TGI_EXCEL_FILE = "TgiData.xlsx"
+    FANS_EXCEL_FILE = "FansData.xlsx"
     SHEET_NAME = "Sheet1"
     NICKNAME_COLUMN = "昵称"
     TGI_COLUMN = "TGI均值"
