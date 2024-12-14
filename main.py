@@ -3,6 +3,8 @@ import pandas as pd
 from urllib.parse import quote
 import time
 import logging
+import json
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -23,20 +25,25 @@ class TGIDataProcessor:
         self.base_url = "https://trendinsight.oceanengine.com/arithmetic-index?type=3"
         self.excel_file = "data.xlsx"
         self.search_base_url = "https://trendinsight.oceanengine.com/arithmetic-index/daren/search?keyword="
+        
+        # 初始化浏览器驱动
+        try:
+                   # 设置 Chrome 选项
+            logging.info("初始化Chrome WebDriver")
+            chrome_options = Options()
+            # 使用默认的 Chrome 用户配置文件
+            chrome_options.add_argument(
+                r"user-data-dir=C:\Users\undefined\AppData\Local\Google\Chrome\User Data")
+            # 指定配置文件
+            chrome_options.add_argument("profile-directory=Default")
 
-        # 设置 Chrome 选项
-        logging.info("初始化Chrome WebDriver")
-        chrome_options = Options()
-        # 使用默认的 Chrome 用户配置文件
-        chrome_options.add_argument(
-            r"user-data-dir=C:\Users\undefined\AppData\Local\Google\Chrome\User Data")
-        # 指定配置文件
-        chrome_options.add_argument("profile-directory=Default")
-
-        service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
-        self.wait = WebDriverWait(self.driver, 20)
-        logging.info("Chrome WebDriver初始化完成")
+            service = Service(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            self.wait = WebDriverWait(self.driver, 20)
+            logging.info("Chrome WebDriver初始化完成")
+        except Exception as e:
+            logging.error(f"初始化浏览器驱动失败: {str(e)}")
+            raise
 
     def read_tgi_data(self):
         """读取Excel文件中的TGI指数数据"""
@@ -46,7 +53,7 @@ class TGIDataProcessor:
                 return None
 
             # 指定读取"TGI指数平均值"工作表
-            df = pd.read_excel(self.excel_file, sheet_name="TGI指数平均值")
+            df = pd.read_excel(self.excel_file, sheet_name="Sheet1")
             logging.info(f"成功读取'TGI指数平均值'工作表")
 
             # 显示工作表的基本信息
@@ -58,6 +65,7 @@ class TGIDataProcessor:
         except Exception as e:
             logging.error(f"读取文件 {self.excel_file} 时发生错误: {str(e)}")
             return None
+
 
     def search_nickname(self, nickname):
         """根据昵称搜索"""
@@ -81,9 +89,7 @@ class TGIDataProcessor:
                 logging.warning(f"昵称 {nickname} 没有搜索结果")
                 return
 
-            # 处理第一个搜索结果
-            first_result = results[0]
-            self._process_first_result(first_result, nickname)
+            self._process_first_result( nickname)
 
         except Exception as e:
             self._handle_search_error(e, nickname, original_handles)
@@ -98,7 +104,6 @@ class TGIDataProcessor:
             logging.info("页面加载完成")
         except Exception as e:
             logging.debug(f"未检测到加载指示器: {str(e)}")
-
     def _get_search_results(self):
         """获取搜索结果"""
         try:
@@ -111,61 +116,75 @@ class TGIDataProcessor:
             logging.error(f"获取搜索结果时出错: {str(e)}")
             return []
 
-    def _process_first_result(self, first_result, nickname):
+    def _process_first_result(self, nickname):
         """处理第一个搜索结果"""
         try:
             # 在搜索结果中找到"达人详情"按钮
+            logging.info(f"开始处理昵称: {nickname} 的达人详情")
             daren_detail_button = self.wait.until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, ".daren-CJ5hTJ"))
             )
+            logging.info("成功找到达人详情按钮")
 
+            # 记录当前窗口句柄
+            original_handle = self.driver.current_window_handle
+            
             # 滚动到按钮位置并点击
             self.driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", 
                 daren_detail_button
             )
-            time.sleep(0.5)
+            
+            # 使用 JavaScript 点击按钮
             self.driver.execute_script("arguments[0].click();", daren_detail_button)
-            logging.info(f"成功点击 {nickname} 的达人详情按钮")
+            logging.info(f"已点击 {nickname} 的达人详情按钮")
             
-            # 等待页面跳转和canvas加载
             time.sleep(0.5)
             
-            # 获取TGI数据
-            tgi_values = self.driver.execute_script("""
-                // 获取所有tooltip中的TGI值
-                var tooltips = document.querySelectorAll('.lightcharts-tooltip');
-                var values = [];
-                
-                tooltips.forEach(function(tooltip) {
-                    var tgiRow = Array.from(tooltip.querySelectorAll('div')).find(div => 
-                        div.textContent.includes('TGI')
-                    );
-                    if (tgiRow) {
-                        var tgiValue = parseFloat(tgiRow.querySelector('span:last-child').textContent);
-                        if (!isNaN(tgiValue)) {
-                            values.push(tgiValue);
-                        }
-                    }
-                });
-                
-                return values;
-            """)
-            
-            # 计算平均值
-            if tgi_values and len(tgi_values) > 0:
-                avg_tgi = sum(tgi_values) / len(tgi_values)
-                logging.info(f"昵称 {nickname} 的TGI值: {tgi_values}")
-                logging.info(f"昵称 {nickname} 的TGI平均值: {avg_tgi}")
-            else:
-                logging.warning(f"未能获取到 {nickname} 的TGI值")
-            
-            # 记录URL
-            logging.info(f"跳转后的页面URL: {self.driver.current_url}")
+            original_handle = self.driver.current_window_handle
+            # 修改粉丝画像按钮的选择器
+            fans_profile_selector = "div.item-a_379S:nth-child(3)"  # 选择第三个item-a_379S元素，即粉丝画像按钮
 
+            # 等待并点击粉丝画像按钮
+            fans_profile_button = self.wait.until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, fans_profile_selector))
+            )
+
+            # 滚动到粉丝画像按钮位置
+            self.driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center'});", 
+                fans_profile_button
+            )
+
+            # 点击粉丝画像按钮
+            self.driver.execute_script("arguments[0].click();", fans_profile_button)
+            logging.info(f"已点击 {nickname} 的粉丝画像按钮")
+            
+           
+            # 等待并点击城市级别按钮
+            city_level_button = self.wait.until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), '城市级别')]"))
+            )
+
+            # 滚动到城市级别按钮位置
+            self.driver.execute_script(
+                "arguments[0].scrollIntoView({block: 'center'});", 
+                city_level_button
+            )
+
+            # 点击城市级别按钮
+            self.driver.execute_script("arguments[0].click();", city_level_button)
+            logging.info(f"已点击城市级别按钮")
+
+            time.sleep(100)  # 等待数据加载
         except Exception as e:
-            logging.error(f"处理达人详情时出错: {str(e)}")
+            logging.error(f"处理达人详情时发生错误: {str(e)}")
             raise
+        finally:
+            # 确保关闭当前标签页并切回原标签页
+            if len(self.driver.window_handles) > 1:
+                self.driver.close()
+                self.driver.switch_to.window(original_handle)
 
     def _handle_search_error(self, error, nickname, original_handles):
         """处理搜索过程中的错误"""
@@ -186,7 +205,6 @@ class TGIDataProcessor:
             return
 
         nickname_column = "昵称"
-
         if nickname_column not in df.columns:
             logging.error(f"错误：找不到'{nickname_column}'列")
             logging.error(f"可用的列名：{list(df.columns)}")
@@ -196,14 +214,19 @@ class TGIDataProcessor:
         nicknames = df[nickname_column].unique()
         logging.info(f"共找到 {len(nicknames)} 个不重复昵称")
 
-        # 搜索每个昵称
-        for i, nickname in enumerate(nicknames, 1):
-            logging.info(f"\n处理第 {i}/{len(nicknames)} 个昵称")
-            self.search_nickname(nickname)
-
-            # 每处理3个昵称暂停一下，避免打开太多标签页
-            if i % 3 == 0:
-                input("已打开3个搜索页面，按回车继续...")
+        # 批量处理昵称，每批5个
+        batch_size = 5
+        for i in range(0, len(nicknames), batch_size):
+            batch = nicknames[i:i + batch_size]
+            logging.info(f"\n开始处理第 {i+1}-{min(i+batch_size, len(nicknames))}/{len(nicknames)} 批昵称")
+            
+            for nickname in batch:
+                self.search_nickname(nickname)
+            
+            # 每批处理完后清理内存
+            if i + batch_size < len(nicknames):
+                logging.info("批次处理完成，暂停5秒...")
+                time.sleep(5)
 
     def __del__(self):
         """析构函数，确保关闭浏览器"""
